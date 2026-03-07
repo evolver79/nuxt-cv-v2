@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: 'Inter fallback';
+  src: local('Arial');
+  size-adjust: 107%;
+  ascent-override: 90%;
+  descent-override: 22%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono fallback';
+  src: local('Courier New');
+  size-adjust: 95%;
+  ascent-override: 95%;
+  descent-override: 24%;
+  line-gap-override: 0%;
+}
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-bg: #f0ebe3;
+  --color-text: #2a2a2a;
+  --color-muted: #8a8580;
+  --color-accent: #b07d62;
+  --color-faint: #d5cfc7;
+
+  --font-sans: 'Inter', 'Inter fallback', -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'JetBrains Mono fallback', monospace;
+
+  --max-width-content: 740px;
+}
+
+.dark {
+  --color-bg: #1a1a1a;
+  --color-text: #e8e2d9;
+  --color-muted: #8a8580;
+  --color-accent: #c4956e;
+  --color-faint: #333;
+}
+
+::selection {
+  background: var(--color-text);
+  color: var(--color-bg);
+}
+
+
+/* Reveal animation */
+.reveal {
+  @apply opacity-0 translate-y-3;
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.reveal.visible {
+  @apply opacity-100 translate-y-0;
+}
