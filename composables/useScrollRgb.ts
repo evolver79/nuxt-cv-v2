@@ -4,6 +4,7 @@ export function useScrollRgb() {
   let lastY = 0
   let smoothSkew = 0
   let raf = 0
+  let idle = true
 
   function update() {
     const y = window.scrollY
@@ -19,16 +20,30 @@ export function useScrollRgb() {
     if (Math.abs(smoothSkew) < 0.01) smoothSkew = 0
     skew.value = smoothSkew
 
+    // Stop loop when settled to save CPU
+    if (velocity === 0 && smoothSkew === 0) {
+      idle = true
+      return
+    }
     raf = requestAnimationFrame(update)
+  }
+
+  function onScroll() {
+    if (idle) {
+      idle = false
+      lastY = window.scrollY
+      raf = requestAnimationFrame(update)
+    }
   }
 
   onMounted(() => {
     lastY = window.scrollY
-    raf = requestAnimationFrame(update)
+    window.addEventListener('scroll', onScroll, { passive: true })
   })
 
   onUnmounted(() => {
     cancelAnimationFrame(raf)
+    window.removeEventListener('scroll', onScroll)
   })
 
   return { offset, skew }

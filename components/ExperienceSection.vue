@@ -106,6 +106,10 @@ onMounted(() => {
               :src="getIconUrl(tech)"
               :alt="tech"
               :title="tech"
+              loading="lazy"
+              decoding="async"
+              width="20"
+              height="20"
               :class="['size-5 opacity-70 hover:opacity-100 transition-opacity duration-200', isMono(tech) && 'dark:invert']"
             >
           </div>

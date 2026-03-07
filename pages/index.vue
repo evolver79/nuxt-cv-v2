@@ -46,6 +46,6 @@ useSeoMeta({
       <ContactSection />
       <SiteFooter @trigger-demo="demoActive = true" />
     </div>
-    <DemoScene :active="demoActive" @close="demoActive = false" />
+    <LazyDemoScene :active="demoActive" @close="demoActive = false" />
   </div>
 </template>
