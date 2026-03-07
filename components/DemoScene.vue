@@ -46,7 +46,7 @@ async function startDemo() {
 
   const scene = new THREE.Scene()
   const camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 100)
-  camera.position.z = 6
+  camera.position.z = window.innerWidth < 768 ? 10 : 8
 
   const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true })
   renderer.setSize(LO_W, LO_H)
@@ -200,23 +200,65 @@ async function startDemo() {
   blobScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), blobMaterial))
 
   // ============================================================
-  // TORUS + WIREFRAMES
+  // 3D MODELS — cycle through geometries on every 4th beat
   // ============================================================
-  const torusMat = new THREE.MeshPhongMaterial({ color: 0x667788, specular: 0x556677, shininess: 120, emissive: 0x080810 })
-  const torus = new THREE.Mesh(new THREE.TorusGeometry(1.2, 0.5, 64, 128), torusMat)
+  const geometries = [
+    { hi: new THREE.TorusGeometry(1.2, 0.5, 64, 128), lo: new THREE.TorusGeometry(1.2, 0.5, 24, 48) },
+    { hi: new THREE.IcosahedronGeometry(1.3, 1), lo: new THREE.IcosahedronGeometry(1.3, 0) },
+    { hi: new THREE.TorusKnotGeometry(0.9, 0.35, 128, 32), lo: new THREE.TorusKnotGeometry(0.9, 0.35, 48, 12) },
+    { hi: new THREE.OctahedronGeometry(1.3, 2), lo: new THREE.OctahedronGeometry(1.3, 1) },
+    { hi: new THREE.DodecahedronGeometry(1.2, 1), lo: new THREE.DodecahedronGeometry(1.2, 0) },
+  ]
+  let geoIdx = 0
+
+  const torusMat = new THREE.MeshPhongMaterial({ color: 0x667788, specular: 0x556677, shininess: 120, emissive: 0x080810, transparent: true, opacity: 1.0 })
+  const torus = new THREE.Mesh(geometries[0].hi, torusMat)
   scene.add(torus)
 
   const wireframes: THREE.Mesh[] = []
-  // Start mono, will colorize per phase
   const wireMats: THREE.MeshBasicMaterial[] = []
   const lags = [0.3, 0.6, 0.9, 1.2]
   for (let i = 0; i < 4; i++) {
     const mat = new THREE.MeshBasicMaterial({ color: 0x556677, wireframe: true, transparent: true, opacity: 0.08 - i * 0.01 })
-    const wf = new THREE.Mesh(new THREE.TorusGeometry(1.2, 0.5, 24, 48), mat)
+    const wf = new THREE.Mesh(geometries[0].lo, mat)
     scene.add(wf)
     wireframes.push(wf)
     wireMats.push(mat)
   }
+
+  function swapGeometry() {
+    geoIdx = (geoIdx + 1) % geometries.length
+    torus.geometry = geometries[geoIdx].hi
+    wireframes.forEach((wf) => { wf.geometry = geometries[geoIdx].lo })
+  }
+
+  // ============================================================
+  // WIREFRAME CITY (phase 5)
+  // ============================================================
+  const cityGroup = new THREE.Group()
+  cityGroup.visible = false
+  scene.add(cityGroup)
+
+  const cityBarMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true, transparent: true, opacity: 0.3 })
+  const cityGridSize = 12
+  const citySpacing = 1.2
+  const cityBars: THREE.Mesh[] = []
+  const cityBarGeo = new THREE.BoxGeometry(0.8, 1, 0.8)
+  for (let x = 0; x < cityGridSize; x++) {
+    for (let z = 0; z < cityGridSize; z++) {
+      const bar = new THREE.Mesh(cityBarGeo, cityBarMat.clone())
+      bar.position.x = (x - cityGridSize / 2) * citySpacing
+      bar.position.z = (z - cityGridSize / 2) * citySpacing
+      bar.position.y = 0
+      cityGroup.add(bar)
+      cityBars.push(bar)
+    }
+  }
+
+  // Ground grid
+  const gridHelper = new THREE.GridHelper(cityGridSize * citySpacing, cityGridSize, 0x004444, 0x003333)
+  gridHelper.position.y = -0.5
+  cityGroup.add(gridHelper)
 
   // ============================================================
   // LIGHTS
@@ -330,28 +372,29 @@ async function startDemo() {
     osc.stop(time + 0.8)
   }
 
-  // Kick (drop phase)
+  // Kick (drop phase) — punchier
   function playKick(time: number) {
     const osc = audioCtx.createOscillator()
     const gain = audioCtx.createGain()
     osc.connect(gain)
     gain.connect(masterGain)
-    osc.frequency.setValueAtTime(150, time)
-    osc.frequency.exponentialRampToValueAtTime(30, time + 0.12)
-    gain.gain.setValueAtTime(0.9, time)
-    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.3)
+    osc.frequency.setValueAtTime(180, time)
+    osc.frequency.exponentialRampToValueAtTime(28, time + 0.15)
+    gain.gain.setValueAtTime(1.0, time)
+    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.35)
     osc.start(time)
-    osc.stop(time + 0.3)
+    osc.stop(time + 0.35)
   }
 
-  // Hihat (drop phase)
+  // Hihat (drop phase) — pre-created noise buffer
+  const hihatSz = audioCtx.sampleRate * 0.05
+  const hihatBuf = audioCtx.createBuffer(1, hihatSz, audioCtx.sampleRate)
+  const hihatData = hihatBuf.getChannelData(0)
+  for (let i = 0; i < hihatSz; i++) hihatData[i] = Math.random() * 2 - 1
+
   function playHihat(time: number, accent: boolean) {
-    const sz = audioCtx.sampleRate * 0.05
-    const buf = audioCtx.createBuffer(1, sz, audioCtx.sampleRate)
-    const d = buf.getChannelData(0)
-    for (let i = 0; i < sz; i++) d[i] = Math.random() * 2 - 1
     const src = audioCtx.createBufferSource()
-    src.buffer = buf
+    src.buffer = hihatBuf
     const flt = audioCtx.createBiquadFilter()
     flt.type = 'highpass'
     flt.frequency.value = 8000
@@ -365,32 +408,43 @@ async function startDemo() {
     src.stop(time + 0.06)
   }
 
-  // Acid bass (drop phase)
-  const acidNotes = [55, 55, 82.41, 55, 73.42, 55, 61.74, 82.41]
+  // Acid bass (drop phase) — more resonance, wider range, funkier pattern
+  const acidNotes = [55, 55, 82.41, 55, 73.42, 98, 61.74, 110]
   function playAcid(time: number, beatInBar: number) {
     const osc = audioCtx.createOscillator()
     const gain = audioCtx.createGain()
     const flt = audioCtx.createBiquadFilter()
     osc.type = 'sawtooth'
     flt.type = 'lowpass'
-    flt.frequency.setValueAtTime(1200, time)
-    flt.frequency.exponentialRampToValueAtTime(200, time + 0.15)
-    flt.Q.value = 12
+    // Accent every other beat with higher cutoff
+    const accent = beatInBar % 2 === 0
+    flt.frequency.setValueAtTime(accent ? 2000 : 1200, time)
+    flt.frequency.exponentialRampToValueAtTime(150, time + 0.18)
+    flt.Q.value = 18
     osc.frequency.value = acidNotes[beatInBar % acidNotes.length]
+    // Slide on certain beats
+    if (beatInBar === 2 || beatInBar === 6) {
+      osc.frequency.setValueAtTime(acidNotes[beatInBar % acidNotes.length], time)
+      osc.frequency.exponentialRampToValueAtTime(acidNotes[(beatInBar + 1) % acidNotes.length], time + 0.1)
+    }
     osc.connect(flt)
     flt.connect(gain)
     gain.connect(masterGain)
-    gain.gain.setValueAtTime(0.12, time)
-    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.2)
+    gain.gain.setValueAtTime(accent ? 0.18 : 0.12, time)
+    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.25)
     osc.start(time)
-    osc.stop(time + 0.2)
+    osc.stop(time + 0.25)
   }
 
   // ============================================================
   // PHASE TIMING
   // ============================================================
-  const INTRO_END = 15
-  const BUILDUP_END = 30
+  // Phase order: CITY → INTRO → BUILDUP → DROP → MELTDOWN → VOID (fade & close)
+  const CITY_END = 15
+  const INTRO_END = 30
+  const BUILDUP_END = 45
+  const DROP_END = 65
+  const MELTDOWN_END = 80
   const bpm = 130
   const beatInterval = 60 / bpm
   let audioNextBeat = audioCtx.currentTime + 0.05
@@ -398,15 +452,21 @@ async function startDemo() {
   let audioStartTime = audioCtx.currentTime
 
   function getPhase(t: number): number {
-    if (t < INTRO_END) return 0 // intro
-    if (t < BUILDUP_END) return 1 // buildup
-    return 2 // drop
+    if (t < CITY_END) return 0    // city
+    if (t < INTRO_END) return 1   // intro
+    if (t < BUILDUP_END) return 2 // buildup
+    if (t < DROP_END) return 3    // drop
+    if (t < MELTDOWN_END) return 4 // meltdown
+    return 5                       // void
   }
 
   function getPhaseProgress(t: number): number {
-    if (t < INTRO_END) return t / INTRO_END
+    if (t < CITY_END) return t / CITY_END
+    if (t < INTRO_END) return (t - CITY_END) / (INTRO_END - CITY_END)
     if (t < BUILDUP_END) return (t - INTRO_END) / (BUILDUP_END - INTRO_END)
-    return Math.min((t - BUILDUP_END) / 4, 1) // drop ramps in over 4s
+    if (t < DROP_END) return Math.min((t - BUILDUP_END) / 4, 1)
+    if (t < MELTDOWN_END) return (t - DROP_END) / (MELTDOWN_END - DROP_END)
+    return Math.min((t - MELTDOWN_END) / 4, 1)
   }
 
   function scheduleAudio() {
@@ -416,55 +476,81 @@ async function startDemo() {
     const phase = getPhase(elapsed)
     const progress = getPhaseProgress(elapsed)
 
-    // Pad filter: opens progressively across phases
+    // Pad filter & volume per phase (0=city, 1=intro, 2=buildup, 3=drop, 4=meltdown, 5=void)
     let padFreq = 400
-    if (phase === 0) padFreq = 400 + progress * 200 + Math.sin(now * 0.15) * 100
-    else if (phase === 1) padFreq = 600 + progress * 1400 // sweep up to 2000
-    else padFreq = 1200 + Math.sin(now * 0.2) * 400
+    let padVol = 0.04
+    if (phase === 0) { padFreq = 200 + progress * 200 + Math.sin(now * 0.1) * 50; padVol = 0.03 + progress * 0.03 }
+    else if (phase === 1) { padFreq = 400 + progress * 200 + Math.sin(now * 0.15) * 100; padVol = 0.06 }
+    else if (phase === 2) { padFreq = 600 + progress * 1400; padVol = 0.06 + progress * 0.06 }
+    else if (phase === 3) { padFreq = 1200 + Math.sin(now * 0.2) * 400; padVol = 0.08 }
+    else if (phase === 4) { padFreq = 800 + Math.sin(now * 0.8) * 600; padVol = 0.1 + progress * 0.04 }
+    else { padFreq = 200 - progress * 100; padVol = 0.06 * (1 - progress * 0.8) }
     padFilter.frequency.setTargetAtTime(padFreq, now, 0.3)
-
-    // Pad volume: louder during buildup, slightly lower at drop
-    const padVol = phase === 0 ? 0.06 : phase === 1 ? 0.06 + progress * 0.06 : 0.08
     padGain.gain.setTargetAtTime(padVol, now, 0.3)
 
-    // Noise: rises during buildup
-    const noiseVol = phase === 0 ? 0.008 : phase === 1 ? 0.008 + progress * 0.025 : 0.012
+    // Noise per phase
+    let noiseVol = 0.005
+    let noiseSweep = 1500
+    if (phase === 0) { noiseVol = 0.003 + progress * 0.005; noiseSweep = 1000 + progress * 1000 }
+    else if (phase === 1) { noiseVol = 0.008; noiseSweep = 1500 + Math.sin(now * 0.2) * 1000 }
+    else if (phase === 2) { noiseVol = 0.008 + progress * 0.025; noiseSweep = 2000 + progress * 6000 }
+    else if (phase === 3) { noiseVol = 0.012; noiseSweep = 1500 + Math.sin(now * 0.2) * 1000 }
+    else if (phase === 4) { noiseVol = 0.02 + progress * 0.03; noiseSweep = 3000 + Math.sin(now * 1.5) * 3000 }
+    else { noiseVol = 0.015 * (1 - progress * 0.9); noiseSweep = 800 }
     noiseGain.gain.setTargetAtTime(noiseVol, now, 0.3)
-    const noiseSweep = phase === 1 ? 2000 + progress * 6000 : 1500 + Math.sin(now * 0.2) * 1000
     noiseFilter.frequency.setTargetAtTime(noiseSweep, now, 0.3)
 
-    // Rising sweep: only during buildup
-    if (phase === 1) {
+    // Rising sweep: buildup + meltdown descending
+    if (phase === 2) {
       sweepGain.gain.setTargetAtTime(0.04 + progress * 0.08, now, 0.2)
       sweepFilter.frequency.setTargetAtTime(200 + progress * 3000, now, 0.5)
       sweepOsc.frequency.setTargetAtTime(55 + progress * 165, now, 0.5)
+    } else if (phase === 4) {
+      sweepGain.gain.setTargetAtTime(0.06 + progress * 0.06, now, 0.2)
+      sweepFilter.frequency.setTargetAtTime(3000 - progress * 2500, now, 0.5)
+      sweepOsc.frequency.setTargetAtTime(220 - progress * 165, now, 0.5)
     } else {
-      sweepGain.gain.setTargetAtTime(0, now, 0.1)
+      sweepGain.gain.setTargetAtTime(0, now, 0.3)
     }
 
     while (audioNextBeat < audioCtx.currentTime + 0.2) {
       const beatElapsed = audioNextBeat - audioStartTime
       const bp = getPhase(beatElapsed)
+      const bpProgress = getPhaseProgress(beatElapsed)
       const beatInBar = audioBeatCount % 8
 
       if (bp === 0) {
+        // CITY: building minimal techno
+        if (progress > 0.3) playKick(audioNextBeat)
+        if (progress > 0.5 && beatInBar % 2 === 0) playHihat(audioNextBeat, false)
+        if (progress > 0.2 && (beatInBar === 0 || beatInBar === 3 || beatInBar === 6)) playPing(audioNextBeat, 0.03 + progress * 0.02)
+        if (beatInBar % 4 === 0) playSubPulse(audioNextBeat, 0.2 + progress * 0.2)
+      } else if (bp === 1) {
         // INTRO: sparse sub + pings
         if (beatInBar % 2 === 0) playSubPulse(audioNextBeat, 0.5)
         if (beatInBar === 0 || beatInBar === 5) playPing(audioNextBeat + Math.random() * 0.05, 0.06)
-      } else if (bp === 1) {
-        // BUILDUP: sub gets faster, pings more frequent
+      } else if (bp === 2) {
+        // BUILDUP
         playSubPulse(audioNextBeat, 0.6)
         if (beatInBar % 2 === 0) playPing(audioNextBeat, 0.08)
-        // Add offbeat sub for urgency in second half
-        const bp2 = getPhaseProgress(beatElapsed)
-        if (bp2 > 0.5 && beatInBar % 2 === 1) playSubPulse(audioNextBeat, 0.3)
-      } else {
+        if (bpProgress > 0.5 && beatInBar % 2 === 1) playSubPulse(audioNextBeat, 0.3)
+      } else if (bp === 3) {
         // DROP: full beat
         playKick(audioNextBeat)
         playHihat(audioNextBeat, beatInBar % 2 === 1)
         playHihat(audioNextBeat + beatInterval * 0.5, false)
         playAcid(audioNextBeat, beatInBar)
         if (beatInBar === 0 || beatInBar === 4) playPing(audioNextBeat, 0.05)
+      } else if (bp === 4) {
+        // MELTDOWN: glitchy broken beat
+        if (Math.random() > bpProgress * 0.4) playKick(audioNextBeat)
+        if (Math.random() > 0.3) playHihat(audioNextBeat, Math.random() > 0.5)
+        playAcid(audioNextBeat, Math.floor(Math.random() * 8))
+        if (Math.random() > 0.6) playPing(audioNextBeat, 0.04 + Math.random() * 0.06)
+      } else {
+        // VOID: sparse, deep, fading
+        if (beatInBar === 0) playSubPulse(audioNextBeat, 0.4 * (1 - bpProgress * 0.8))
+        if (beatInBar === 4 && bpProgress < 0.7) playPing(audioNextBeat, 0.03)
       }
 
       audioNextBeat += beatInterval
@@ -483,6 +569,14 @@ async function startDemo() {
   const hCtx = hudCanvas.getContext('2d')!
   hudCanvas.width = window.innerWidth
   hudCanvas.height = window.innerHeight
+
+  // Pre-warm large font rasterization to avoid stall on first use
+  // Must draw visible text at valid coordinates to force glyph rasterization
+  hCtx.font = 'bold 48px "JetBrains Mono",monospace'
+  hCtx.fillStyle = 'rgba(255,255,255,0.01)'
+  hCtx.fillText('ABCDEFGHIJKLMNOPQRSTUVWXYZ ', 0, 50)
+  hCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height)
+  hCtx.font = '11px "JetBrains Mono",monospace'
 
   const onResize = () => {
     const a = window.innerWidth / window.innerHeight
@@ -513,12 +607,12 @@ async function startDemo() {
   let glitchTimer = 0
 
   function triggerGlitch() {
-    glitchIntensity = 0.5 + Math.random() * 0.5
-    glitchTimer = 0.08 + Math.random() * 0.12
+    glitchIntensity = 0.6 + Math.random() * 0.6
+    glitchTimer = 0.1 + Math.random() * 0.2
     glitchCount++
   }
 
-  const phaseNames = ['INTRO', 'BUILDUP', 'DROP']
+  const phaseNames = ['CITY', 'INTRO', 'BUILDUP', 'DROP', 'MELTDOWN', 'VOID']
 
   function drawHud(w: number, h: number, t: number, phase: number, progress: number) {
     hCtx.clearRect(0, 0, w, h)
@@ -548,9 +642,16 @@ async function startDemo() {
 
     const elapsed = ((performance.now() - startTime) / 1000).toFixed(1)
 
-    // HUD colors per phase: mono → warm → neon
-    const hudLeft = phase === 0 ? 'rgba(180,180,190,0.4)' : phase === 1 ? 'rgba(100,200,220,0.5)' : 'rgba(0,255,255,0.6)'
-    const hudRight = phase === 0 ? 'rgba(160,160,170,0.35)' : phase === 1 ? 'rgba(200,180,100,0.4)' : 'rgba(255,170,0,0.5)'
+    // HUD colors per phase
+    const hudColors: Record<number, [string, string]> = {
+      0: ['rgba(180,180,190,0.4)', 'rgba(160,160,170,0.35)'],
+      1: ['rgba(100,200,220,0.5)', 'rgba(200,180,100,0.4)'],
+      2: ['rgba(0,255,255,0.6)', 'rgba(255,170,0,0.5)'],
+      3: ['rgba(255,50,50,0.6)', 'rgba(255,0,100,0.5)'],
+      4: ['rgba(80,80,100,0.3)', 'rgba(60,60,80,0.25)'],
+      5: ['rgba(0,255,200,0.5)', 'rgba(0,200,180,0.4)'],
+    }
+    const [hudLeft, hudRight] = hudColors[phase] || hudColors[0]
 
     // Left stats
     const statsLeft = [`FPS   ${fps}`, `TIME  ${elapsed}s`, `BPM   ${bpm}`, `BEAT  #${beatCount}`, `PHASE ${phaseNames[phase]}`]
@@ -579,24 +680,50 @@ async function startDemo() {
 
     // Beat flash
     if (bump > 0.5) {
-      hCtx.fillStyle = `rgba(255,255,255,${bump * (phase === 2 ? 0.08 : 0.04)})`
+      const flashColor = phase === 4 ? `rgba(255,0,0,${bump * 0.1})` : phase === 5 ? `rgba(255,255,255,${bump * 0.02})` : `rgba(255,255,255,${bump * (phase === 3 ? 0.08 : 0.04)})`
+      hCtx.fillStyle = flashColor
       hCtx.fillRect(0, 0, w, h)
     }
 
-    // Drop: flash greets text on big beats
-    if (phase === 2 && bump > 0.7) {
-      const greets = ['RESPECT', 'KEEP CODING', 'LONG LIVE THE SCENE', 'NO SLEEP', 'GREETS TO ALL']
+    // Meltdown: heavy scanline corruption
+    if (phase === 4) {
+      const corruptLines = Math.floor(progress * 15)
+      for (let i = 0; i < corruptLines; i++) {
+        const y = Math.floor(Math.random() * h)
+        const sliceH = 1 + Math.floor(Math.random() * 6)
+        hCtx.fillStyle = `rgba(255,0,0,${0.05 + Math.random() * 0.1})`
+        hCtx.fillRect(0, y, w, sliceH)
+      }
+    }
+
+    // Flash greets text on big beats (drop + meltdown)
+    if ((phase === 3 || phase === 4) && bump > 0.7) {
+      const greets = phase === 4
+        ? ['SYSTEM OVERLOAD', 'FATAL ERROR', 'CORE MELTDOWN', 'NO ESCAPE', 'SIGNAL LOST']
+        : ['RESPECT', 'KEEP CODING', 'LONG LIVE THE SCENE', 'NO SLEEP', 'GREETS TO ALL']
       const greet = greets[beatCount % greets.length]
-      hCtx.font = '28px "JetBrains Mono",monospace'
+      hCtx.font = '42px "JetBrains Mono",monospace'
       hCtx.textAlign = 'center'
-      hCtx.fillStyle = `rgba(255,255,255,${(bump - 0.7) * 2})`
+      const col = phase === 4 ? `rgba(255,50,50,${(bump - 0.7) * 2.5})` : `rgba(255,255,255,${(bump - 0.7) * 2})`
+      hCtx.fillStyle = col
       hCtx.fillText(greet, w / 2, h / 2 + h * 0.25)
       hCtx.font = '11px "JetBrains Mono",monospace'
       hCtx.textAlign = 'left'
     }
 
+    // Void: single fading text
+    if (phase === 5 && progress < 0.5) {
+      hCtx.font = '32px "JetBrains Mono",monospace'
+      hCtx.textAlign = 'center'
+      hCtx.fillStyle = `rgba(255,255,255,${0.3 * (1 - progress * 2)})`
+      hCtx.fillText('...', w / 2, h / 2)
+      hCtx.font = '11px "JetBrains Mono",monospace'
+      hCtx.textAlign = 'left'
+    }
+
+
     // Buildup progress bar
-    if (phase === 1) {
+    if (phase === 2) {
       const barW = w * 0.4
       const barH = 3
       const barX = (w - barW) / 2
@@ -611,11 +738,11 @@ async function startDemo() {
   // ============================================================
   // PHASE SKIP (arrow keys)
   // ============================================================
-  const phaseStarts = [0, INTRO_END, BUILDUP_END]
+  const phaseStarts = [0, CITY_END, INTRO_END, BUILDUP_END, DROP_END, MELTDOWN_END]
 
   function skipPhase(dir: number) {
     const currentPhase = getPhase(t)
-    const target = Math.max(0, Math.min(2, currentPhase + dir))
+    const target = Math.max(0, Math.min(5, currentPhase + dir))
     t = phaseStarts[target] + 0.1
     // Resync audio — make audioStartTime so that elapsed matches t
     audioStartTime = audioCtx.currentTime - t
@@ -635,7 +762,9 @@ async function startDemo() {
   let t = 0
   let animId = 0
   let lastTime = performance.now()
-  const camBaseZ = 6
+  const camBaseZ = window.innerWidth < 768 ? 10 : 8
+  const VOID_FADE_DUR = 8 // void fades out over its duration
+  let closingEmitted = false
 
   function frame(now: number) {
     const dt = Math.min((now - lastTime) / 1000, 0.05)
@@ -654,110 +783,206 @@ async function startDemo() {
     const phase = getPhase(t)
     const progress = getPhaseProgress(t)
 
-    // Beat timing — faster during buildup second half
+    // Beat timing (0=city, 1=intro, 2=buildup, 3=drop, 4=meltdown, 5=void)
     nextBeat -= dt
     if (nextBeat <= 0) {
-      bump = phase === 2 ? 1 : phase === 1 ? 0.4 + progress * 0.6 : 0.3
+      bump = phase === 4 ? 1.0 + (1 - progress) * 0.3 : phase === 3 ? 1.2 : phase === 2 ? 0.5 + progress * 0.7 : phase === 5 ? 0.2 : phase === 0 ? 0.3 + progress * 0.3 : 0.4
       beatCount++
       nextBeat += beatInterval
-      const glitchChance = phase === 0 ? 0.15 : phase === 1 ? 0.2 + progress * 0.3 : 0.45
+      const glitchChance = phase === 4 ? 0.8 : phase === 3 ? 0.6 : phase === 2 ? 0.3 + progress * 0.4 : phase === 1 ? 0.2 : phase === 0 ? 0.1 : 0.05
       if (Math.random() < glitchChance) triggerGlitch()
+      if (beatCount % 4 === 0 && phase >= 1 && phase <= 4) swapGeometry()
     }
-    bump *= phase === 2 ? 0.88 : 0.92
+    bump *= phase === 4 ? 0.82 : phase === 3 ? 0.85 : phase === 5 ? 0.95 : 0.9
     glitchTimer = Math.max(0, glitchTimer - dt)
 
-    // Color saturation: more color from the start
-    const saturation = phase === 0 ? 0.3 + progress * 0.15 : phase === 1 ? 0.45 + progress * 0.3 : 0.75 + progress * 0.25
+    const hueBase = (t * 0.03) % 1
 
-    // Blob background
+    // Saturation per phase
+    let saturation = 0.5
+    if (phase === 0) saturation = 0.3 + progress * 0.15
+    else if (phase === 1) saturation = 0.45 + progress * 0.2
+    else if (phase === 2) saturation = 0.65 + progress * 0.25
+    else if (phase === 3) saturation = 0.9 + progress * 0.1
+    else if (phase === 4) saturation = 1.0 - progress * 0.6
+    else saturation = 0.1 + (1 - progress) * 0.3
+
+    // Background shader
     blobMaterial.uniforms.uTime.value = t
-    blobMaterial.uniforms.uIntensity.value = phase === 0 ? 0 : phase === 1 ? progress * 0.5 : 1
+    let bgIntensity = 0
+    if (phase === 0) bgIntensity = 0.1 + progress * 0.05
+    else if (phase === 1) bgIntensity = 0.15
+    else if (phase === 2) bgIntensity = 0.15 + progress * 0.85
+    else if (phase === 3) bgIntensity = 1
+    else if (phase === 4) bgIntensity = 1 - progress * 0.3
+    else bgIntensity = 0.3 * (1 - progress)
+    blobMaterial.uniforms.uIntensity.value = bgIntensity
     blobMaterial.uniforms.uBump.value = bump
     blobMaterial.uniforms.uSaturation.value = saturation
-    blobMaterial.uniforms.uHueShift.value = 0
-    // Chromatic aberration: subtle intro, stronger at drop, spikes on beats
-    const chromaBase = phase === 0 ? 0.2 : phase === 1 ? 0.3 + progress * 0.4 : 0.7
-    blobMaterial.uniforms.uChroma.value = chromaBase + bump * 0.8
+    blobMaterial.uniforms.uHueShift.value = phase === 4 ? Math.sin(t * 0.5) * 0.5 : Math.sin(t * 0.08) * 0.15
 
-    // Camera zoom: far in intro, zooms in during buildup, close at drop
+    // Chromatic aberration
+    let chromaBase = 0.2
+    if (phase === 0) chromaBase = 0.1 + progress * 0.1
+    else if (phase === 1) chromaBase = 0.3
+    else if (phase === 2) chromaBase = 0.5 + progress * 0.5
+    else if (phase === 3) chromaBase = 1.0
+    else if (phase === 4) chromaBase = 1.5 + progress * 1.5
+    else chromaBase = 0.5 * (1 - progress)
+    blobMaterial.uniforms.uChroma.value = chromaBase + bump * (phase === 4 ? 2.0 : 1.2)
+
+    // Show/hide objects per phase
+    const showCity = phase === 0
+    const showModel = phase >= 1 && phase <= 4
+    torus.visible = showModel
+    wireframes.forEach((wf) => { wf.visible = showModel })
+    cityGroup.visible = showCity
+
+    // Camera
     let targetZ = camBaseZ
-    if (phase === 1) targetZ = camBaseZ - progress * 1.5
-    else if (phase === 2) targetZ = camBaseZ - 1.5 - Math.sin(t * 0.3) * 0.3
-    camera.position.z += (targetZ - camera.position.z) * 0.03
+    if (phase === 0) targetZ = camBaseZ - 1.0
+    else if (phase === 2) targetZ = camBaseZ - progress * 2.0
+    else if (phase === 3) targetZ = camBaseZ - 2.0 - Math.sin(t * 0.4) * 0.6
+    else if (phase === 4) targetZ = camBaseZ - 1.0 + Math.sin(t * 0.8) * 1.5
+    else if (phase === 5) targetZ = camBaseZ + 2.0 + progress * 4.0
+    camera.position.z += (targetZ - camera.position.z) * 0.04
 
-    // Rotation speed: increases across phases
-    const rotSpeed = phase === 0 ? 1 : phase === 1 ? 1 + progress * 0.8 : 1.8 + Math.sin(t * 0.5) * 0.3
+    // Rotation speed
+    let rotSpeed = 1.2
+    if (phase === 2) rotSpeed = 1.2 + progress * 1.2
+    else if (phase === 3) rotSpeed = 2.4 + Math.sin(t * 0.7) * 0.6
+    else if (phase === 4) rotSpeed = 3.0 + Math.sin(t * 2) * 1.5
+    else if (phase === 5) rotSpeed = 0.3 * (1 - progress)
+    const wobble = phase === 3 ? Math.sin(t * 1.3) * 0.4 : phase === 4 ? Math.sin(t * 2.5) * 0.8 : 0
 
-    // Torus — smaller at drop to sit inside the wormhole
-    const baseScale = phase === 2 ? 0.6 + progress * 0 : 1
-    const bumpScale = baseScale + bump * (phase === 2 ? 0.1 : 0.08)
-    torus.scale.setScalar(bumpScale)
-    torus.rotation.x = t * 0.8 * rotSpeed
-    torus.rotation.y = t * 0.5 * rotSpeed
-    torus.rotation.z = t * 0.3 * rotSpeed
+    // Wireframe city animation (phase 0)
+    if (showCity) {
+      const cityT = t
+      // Fade out in last 3 seconds of city phase
+      const cityFade = progress > 0.8 ? 1 - (progress - 0.8) / 0.2 : 1
+      for (let i = 0; i < cityBars.length; i++) {
+        const x = i % cityGridSize
+        const z = Math.floor(i / cityGridSize)
+        const h = (Math.sin(x * 0.8 + cityT * 1.5) + Math.sin(z * 0.6 + cityT * 1.2) + Math.sin((x + z) * 0.5 + cityT * 0.8)) * 0.5
+        const height = Math.abs(h) * (0.5 + progress * 1.5 + bump * 2.0) * cityFade
+        cityBars[i].scale.y = Math.max(0.1, height)
+        cityBars[i].position.y = height * 0.5 - 0.5
 
-    // Torus material
-    torusMat.color.setHSL(0.6, saturation * 0.6, 0.35 + saturation * 0.15)
-    torusMat.specular.setHSL(0.55, saturation * 0.8, 0.3 + saturation * 0.2)
-    const emBright = 0.04 + bump * (phase === 2 ? 0.2 : 0.1)
-    torusMat.emissive.setHSL(0.75, saturation * 0.6, emBright)
-
-    // Wireframe colors — mono grey → neon
-    const wireHues = [0.5, 0.83, 0.12, 0.4] // cyan, magenta, amber, mint
-    for (let i = 0; i < wireframes.length; i++) {
-      const lag = lags[i]
-      const wf = wireframes[i]
-
-      // Drop: wireframes orbit independently
-      if (phase === 2) {
-        const orbitR = 0.4 + i * 0.15
-        const orbitSpeed = 0.8 + i * 0.3
-        const orbitAngle = t * orbitSpeed + i * Math.PI * 0.5
-        wf.position.x = Math.sin(orbitAngle) * orbitR
-        wf.position.y = Math.cos(orbitAngle) * orbitR * 0.6
-        wf.position.z = Math.sin(orbitAngle * 0.7) * orbitR * 0.3
-      } else {
-        wf.position.set(0, 0, 0)
+        const barMat = cityBars[i].material as THREE.MeshBasicMaterial
+        const barHue = (0.45 + x * 0.01 + z * 0.01 + cityT * 0.02) % 1
+        barMat.color.setHSL(barHue, 0.4 + progress * 0.3, (0.2 + progress * 0.2 + bump * 0.2) * cityFade)
+        barMat.opacity = (0.1 + progress * 0.15 + bump * 0.15) * cityFade
       }
 
-      wf.rotation.x = (t - lag) * 0.8 * rotSpeed
-      wf.rotation.y = (t - lag) * 0.5 * rotSpeed
-      wf.rotation.z = (t - lag) * 0.3 * rotSpeed
-      wf.scale.setScalar(bumpScale + bump * 0.06 * (i + 1))
-
-      // Color: grey at low sat, neon at high
-      wireMats[i].color.setHSL(wireHues[i], saturation, 0.3 + saturation * 0.3)
-      const baseOp = phase === 2 ? 0.2 - i * 0.02 : 0.08 - i * 0.01
-      const phaseBoost = phase === 1 ? progress * 0.08 : 0
-      wireMats[i].opacity = baseOp + phaseBoost + 0.04 * Math.sin(t * 1.5 + i * 0.8) + bump * 0.12
+      const cityOrbit = cityT * 0.15
+      camera.position.x = Math.sin(cityOrbit) * 8
+      camera.position.z = Math.cos(cityOrbit) * 8
+      camera.position.y = 3 + Math.sin(cityT * 0.3) * 1.5
+      camera.lookAt(0, 0, 0)
     }
 
-    // Torus visibility glitch during buildup
-    if (phase === 1 && Math.random() < progress * 0.02) {
-      torus.visible = false
-      wireframes.forEach((wf) => { wf.visible = false })
-      setTimeout(() => {
-        torus.visible = true
-        wireframes.forEach((wf) => { wf.visible = true })
-      }, 50 + Math.random() * 150)
+    // Reset camera orientation for non-city phases (city uses lookAt which overrides rotation)
+    if (!showCity) {
+      camera.rotation.x = 0
+      camera.rotation.y = 0
     }
 
-    // Lights — hue follows mouse, saturation per phase
-    const lightBoost = 1 + bump * (phase === 2 ? 1.2 : 0.6)
-    light1.intensity = 60 * lightBoost
-    light2.intensity = 50 * lightBoost
-    light3.intensity = 30 * lightBoost
-    const lightSat = saturation * 0.9
-    light1.color.setHSL(0.52 + Math.sin(t * 0.12) * 0.05, lightSat, 0.5)
-    light2.color.setHSL(0.85 + Math.sin(t * 0.1) * 0.05, lightSat, 0.5)
-    light3.color.setHSL(0.1 + Math.sin(t * 0.08) * 0.04, lightSat, 0.5)
+    // Main model (phases 1-4)
+    if (showModel) {
+      let baseScale = 1
+      if (phase === 3) baseScale = 0.65
+      else if (phase === 4) baseScale = 0.65 + progress * 0.5 * Math.sin(t * 3)
+      else if (phase === 5) baseScale = (1 - progress) * 0.5
+      const bumpScale = Math.max(0.01, baseScale + bump * 0.12)
+      torus.scale.setScalar(bumpScale)
+      torus.rotation.x = t * 0.8 * rotSpeed + wobble
+      torus.rotation.y = t * 0.5 * rotSpeed
+      torus.rotation.z = t * 0.3 * rotSpeed + wobble * 0.5
 
-    // Camera shake: stronger at drop
-    const shakeAmt = phase === 2 ? 0.12 : phase === 1 ? 0.04 + progress * 0.06 : 0.03
-    camera.position.x = Math.sin(t * 30) * bump * shakeAmt
-    camera.position.y = Math.cos(t * 25) * bump * shakeAmt * 0.75
-    // Slow barrel roll at drop
-    camera.rotation.z = phase === 2 ? Math.sin(t * 0.15) * 0.08 : 0
+      torusMat.color.setHSL(hueBase + 0.6, saturation * 0.8, 0.35 + saturation * 0.2)
+      torusMat.specular.setHSL(hueBase + 0.55, saturation, 0.4 + saturation * 0.2)
+      const emBright = 0.06 + bump * (phase >= 3 ? 0.35 : 0.15)
+      torusMat.emissive.setHSL(hueBase + 0.75, saturation * 0.8, emBright)
+
+      if (phase === 4) {
+        torusMat.opacity = Math.random() > progress * 0.3 ? 0.9 : 0.2
+      } else if (phase === 3) {
+        torusMat.opacity = 0.8 + Math.sin(t * 1.5) * 0.1 + bump * 0.1
+      } else {
+        torusMat.opacity = 1.0
+      }
+
+      const wireHues = [0.5, 0.83, 0.12, 0.4]
+      for (let i = 0; i < wireframes.length; i++) {
+        const lag = lags[i]
+        const wf = wireframes[i]
+
+        if (phase === 3) {
+          const orbitR = (0.2 + i * 0.1) * 0.65
+          const orbitSpeed = 1.2 + i * 0.4
+          const orbitAngle = t * orbitSpeed + i * Math.PI * 0.5
+          wf.position.x = Math.sin(orbitAngle) * orbitR
+          wf.position.y = Math.cos(orbitAngle) * orbitR * 0.7
+          wf.position.z = Math.sin(orbitAngle * 0.7 + t) * orbitR * 0.5
+        } else if (phase === 4) {
+          const scatter = progress * 2.0
+          wf.position.x = Math.sin(t * (1 + i) + i) * scatter
+          wf.position.y = Math.cos(t * (0.8 + i) + i * 2) * scatter
+          wf.position.z = Math.sin(t * (0.5 + i * 0.3)) * scatter * 0.5
+        } else if (phase === 2) {
+          const drift = progress * 0.15 * (i + 1)
+          wf.position.x = Math.sin(t + i * 2) * drift
+          wf.position.y = Math.cos(t + i * 2) * drift * 0.5
+          wf.position.z = 0
+        } else {
+          wf.position.set(0, 0, 0)
+        }
+
+        wf.rotation.x = (t - lag) * 0.8 * rotSpeed + wobble * (i % 2 ? 1 : -1)
+        wf.rotation.y = (t - lag) * 0.5 * rotSpeed
+        wf.rotation.z = (t - lag) * 0.3 * rotSpeed + wobble * 0.3
+        wf.scale.setScalar(bumpScale * (1 + 0.04 * (i + 1)) + bump * 0.06)
+
+        const wHue = (wireHues[i] + t * 0.02) % 1
+        wireMats[i].color.setHSL(wHue, saturation, 0.35 + saturation * 0.35)
+        const baseOp = phase === 3 ? 0.25 - i * 0.02 : phase === 4 ? 0.3 : phase === 2 ? 0.1 + progress * 0.1 : 0.08 - i * 0.01
+        wireMats[i].opacity = baseOp + 0.06 * Math.sin(t * 2.0 + i * 1.2) + bump * 0.18
+      }
+
+      const glitchProb = phase === 4 ? 0.05 + progress * 0.05 : phase === 2 ? progress * 0.03 : phase === 3 ? 0.015 : 0
+      if (Math.random() < glitchProb) {
+        torus.visible = false
+        wireframes.forEach((wf) => { wf.visible = false })
+        setTimeout(() => {
+          if (getPhase(t) >= 1 && getPhase(t) <= 4) {
+            torus.visible = true
+            wireframes.forEach((wf) => { wf.visible = true })
+          }
+        }, 30 + Math.random() * (phase === 4 ? 300 : 120))
+      }
+    }
+
+    // Lights
+    const lightBoost = 1 + bump * (phase === 3 ? 2.0 : phase === 4 ? 1.5 : phase === 0 ? 1.0 : 0.8)
+    light1.intensity = (phase === 5 ? 20 * (1 - progress) : 70) * lightBoost
+    light2.intensity = (phase === 5 ? 15 * (1 - progress) : 60) * lightBoost
+    light3.intensity = (phase === 5 ? 10 * (1 - progress) : 40) * lightBoost
+    const lightSat = Math.min(saturation * 1.1, 1)
+    light1.color.setHSL((0.52 + Math.sin(t * 0.2) * 0.1 + hueBase) % 1, lightSat, 0.5)
+    light2.color.setHSL((0.85 + Math.sin(t * 0.15) * 0.1 + hueBase) % 1, lightSat, 0.5)
+    light3.color.setHSL((0.1 + Math.sin(t * 0.12) * 0.08 + hueBase) % 1, lightSat, 0.5)
+
+    // Camera shake & roll (non-city phases)
+    if (!showCity) {
+      // Smoothly bring camera back from orbit position
+      const shakeAmt = phase === 4 ? 0.4 + progress * 0.3 : phase === 3 ? 0.25 : phase === 2 ? 0.06 + progress * 0.1 : phase === 5 ? 0.02 * (1 - progress) : 0.04
+      const shakeX = Math.sin(t * 30) * bump * shakeAmt
+      const shakeY = Math.cos(t * 25) * bump * shakeAmt * 0.8
+      camera.position.x += (shakeX - camera.position.x) * 0.1
+      camera.position.y += (shakeY - camera.position.y) * 0.1
+      const rollAmt = phase === 4 ? 0.3 + progress * 0.2 : phase === 3 ? 0.15 + bump * 0.08 : phase === 2 ? progress * 0.04 : 0
+      camera.rotation.z = Math.sin(t * (phase === 4 ? 0.6 : 0.2)) * rollAmt
+    }
 
     // Render
     renderer.clear(true, true, true)
@@ -767,6 +992,19 @@ async function startDemo() {
 
     drawHud(hudCanvas.width, hudCanvas.height, t, phase, progress)
     scheduleAudio()
+
+    // Void phase: fade to black then auto-close
+    if (phase === 5) {
+      const voidElapsed = t - MELTDOWN_END
+      const fadeProgress = Math.min(voidElapsed / VOID_FADE_DUR, 1)
+      hCtx.fillStyle = `rgba(0,0,0,${fadeProgress})`
+      hCtx.fillRect(0, 0, hudCanvas.width, hudCanvas.height)
+      masterGain.gain.setTargetAtTime(0.4 * (1 - fadeProgress), audioCtx.currentTime, 0.1)
+      if (fadeProgress >= 1 && !closingEmitted) {
+        closingEmitted = true
+        setTimeout(() => emit('close'), 800)
+      }
+    }
 
     animId = requestAnimationFrame(frame)
   }
