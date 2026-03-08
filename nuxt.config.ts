@@ -30,7 +30,7 @@ export default defineNuxtConfig({
       tailwindcss(),
     ],
     build: {
-      cssCodeSplit: true,
+      cssCodeSplit: false,
       rollupOptions: {
         output: {
           manualChunks: {
@@ -58,6 +58,8 @@ export default defineNuxtConfig({
     display: 'swap',
     download: true,
     preload: true,
+    fontsDir: 'fonts',
+    fontsPath: '/_nuxt/fonts',
   },
 
   site: {
